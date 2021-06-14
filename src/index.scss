@@ -1,0 +1,23 @@
+$main-color: #404040;
+$secondary-main-color: #c20008;
+$background-color: #e1e1e1;
+$secondary-background-color: #f2f2f2;
+$accent-color: #DEDEDE;
+$white-color: #FFFFFF;
+$shadow: rgba(0,0,0,0.25);
+
+body {
+  margin: 0;
+  font-family: Arial, -apple-system, BlinkMacSystemFont,
+  sans-serif;
+  font-size: 1em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: $main-color;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+  monospace;
+}
+

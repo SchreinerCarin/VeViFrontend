@@ -1,0 +1,30 @@
+@import "src/index";
+
+.visualisation-container{
+  display: flex;
+  padding: 60px 48px 0 32px;
+
+  .graphs-side{
+    width: 70%;
+    height: 100%;
+  }
+
+  .controls-side{
+    width: 30%;
+
+    .intersection-controls{
+      height: calc(100% - 16px);
+    }
+  }
+}
+
+.vis-with-footer {
+  height: calc(100vh - 120px);
+  padding-bottom: 46px;
+}
+
+.vis-without-footer {
+  height: calc(100vh - 76px);
+  padding-bottom: 16px;
+}
+

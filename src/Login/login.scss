@@ -1,0 +1,30 @@
+@import "src/index";
+
+.login-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+  padding: 30px;
+
+  .login-input-container{
+    max-width: 400px;
+    min-width: 200px;
+  }
+
+  .icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  .error-text {
+    color: $secondary-main-color;
+  }
+
+  .login-item {
+    margin-bottom: 15px;
+  }
+}
+

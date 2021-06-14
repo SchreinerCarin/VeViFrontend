@@ -1,0 +1,23 @@
+@import "src/index";
+
+.chatbot-line, .user-line {
+  width: 100%;
+  margin: 8px;
+
+  .bubble {
+    background-color: $background-color;
+    border: 1px solid $main-color;
+    box-shadow: 4px 4px 4px $shadow;
+    border-radius: 3px;
+    padding: 8px;
+    width: 70%;
+    max-width: 700px;
+  }
+}
+
+.user-line {
+  display: flex;
+  align-content: flex-end;
+  justify-content: flex-end;
+  margin-left: -16px;
+}

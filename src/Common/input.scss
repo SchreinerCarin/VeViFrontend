@@ -1,0 +1,43 @@
+@import "src/index";
+
+.input-container {
+  align-items: center;
+  vertical-align: middle;
+  display: inline-flex;
+  box-shadow: 0 4px 4px $shadow;
+  width: 100%;
+
+  .icon-background {
+    background-color: $secondary-background-color;
+    border: 1px solid $main-color;
+    border-radius: 0 2px 2px 0;
+    height: 16px;
+    width: 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .input {
+    height: 14px;
+    background: $background-color;
+    font-family: Arial;
+    color: $main-color;
+    border: 1px solid $main-color;
+    width: calc(100% - 16px);
+    border-right: 0;
+    border-radius: 2px 0 0 2px;
+  }
+
+  input::placeholder {
+    text-align: center;
+    transform: translateX(8px);
+  }
+
+  input:focus {
+    outline: 0;
+  }
+}
+

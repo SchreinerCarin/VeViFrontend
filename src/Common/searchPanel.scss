@@ -1,0 +1,34 @@
+@import "src/index";
+
+.search-panel-container{
+  height: 100%;
+
+  .icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  .options-container {
+    overflow-y: auto;
+    height: calc(100% - 16px);
+
+    .selected-option, .unselected-option{
+      width: calc(100% - 16px);
+      text-align: center;
+      padding: 8px;
+      border-bottom: 1px solid $accent-color;
+      cursor: pointer;
+    }
+
+    .selected-option {
+      color: $secondary-main-color;
+      background-color: $secondary-background-color;
+    }
+
+    .no-data{
+      width: calc(100% - 16px);
+      text-align: center;
+      padding: 8px;
+    }
+  }
+}

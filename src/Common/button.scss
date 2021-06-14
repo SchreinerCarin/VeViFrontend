@@ -1,0 +1,10 @@
+@import "src/index";
+
+.button{
+  width: 100%;
+  background-color: $secondary-main-color;
+  color: $white-color;
+  box-shadow: 4px 4px 4px $shadow;
+  border: 0px;
+  border-radius: 5px;
+}

@@ -1,0 +1,37 @@
+@import "src/index";
+
+.footer-container{
+  position: fixed;
+  bottom: 0;
+  height: 48px;
+  background-color: white;
+  border-top: 1px solid $accent-color;
+  display: flex;
+  align-items: center;
+  width: 100%;
+
+  .button-side{
+    width: 50%;
+    padding-right: 24px;
+    display: flex;
+    align-content: flex-end;
+    justify-content: flex-end;
+
+    .button-container{
+      display: flex;
+    }
+  }
+
+  .text-side{
+    text-align: center;
+
+    .error-text {
+      color: $secondary-main-color;
+    }
+
+    .access-code{
+      font-weight: bold;
+      font-size: 1.5em;
+    }
+  }
+}

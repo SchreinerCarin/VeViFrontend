@@ -1,0 +1,49 @@
+@import "src/index";
+
+.header-container {
+  height: 36px;
+  display: inline-flex;
+  position: fixed;
+  align-items: center;
+  border-bottom: 1px solid $accent-color;
+  background-color: white;
+  width: 100%;
+  top: 0;
+
+  .icon {
+    height: 64px;
+  }
+
+  .left-side {
+    width: 50%;
+  }
+
+  .right-side {
+    width: 50%;
+    padding-right: 24px;
+    display: flex;
+    align-content: flex-end;
+    justify-content: flex-end;
+  }
+
+  .head-link {
+    font-family: Arial, -apple-system, BlinkMacSystemFont;
+    font-size: 1em;
+  }
+
+  .active-head-link {
+    color: $main-color;
+  }
+
+  a {
+    text-decoration: none;
+  }
+
+  .active-head-link:hover {
+    color: $secondary-main-color;
+  }
+
+  .disabled-head-link {
+    color: $secondary-main-color;
+  }
+}

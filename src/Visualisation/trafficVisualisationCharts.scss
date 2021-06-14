@@ -1,0 +1,15 @@
+@import "src/index";
+
+.traffic-vis-chart-container{
+  height: 100%;
+
+  .top-chart{
+    height: 60%;
+    width: 100%;
+  }
+
+  .bottom-chart{
+    height: 40%;
+    width: 100%;
+  }
+}
