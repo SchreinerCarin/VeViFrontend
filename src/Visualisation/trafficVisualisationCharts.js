@@ -1,30 +1,67 @@
 import React from "react";
-import {VictoryAxis, VictoryBrushContainer, VictoryChart, VictoryZoomContainer, VictoryLabel} from 'victory';
+import Plot from 'react-plotly.js';
 import {requestTrafficData} from "../Utils/restcalls";
-import {dateIsBetweenDates, formatDateToRestTime} from "../Utils/timeUtil";
-import {generateRandomColor, getChartByTypeAndData} from "../Utils/transformUtil";
+import {formatDateToRestTime} from "../Utils/timeUtil";
 import "./trafficVisualisationCharts.scss"
-let _ = require('lodash');
+import {generateRandomColor} from "../Utils/transformUtil";
+import Dropdown from "../Common/dropdown";
 
 const twoYearAgo = new Date(new Date().setFullYear(new Date().getFullYear() -2));
 
 export default class TrafficVisualisationCharts extends React.Component {
 
+    filteringMethods = Object.freeze(["Original", "Moving Mean", "Exponential Filter"])
+
+    errorDetectionAlgorithms = Object.freeze(["Original", "Sigma rule", "Grenzwerte setzen"])
+
+    errorHandlingMetehods = Object.freeze(["Punkt entfernen", "Punkt unsichtbar machen", "Ersetzen durch Minimum",
+        "Ersetzen durch Median", "Ersetzen durch Durchschnitt", "Ersetzen durch Maximum",
+        "Ersetzen durch Linear Interpolation"])
+
+    getOriginalData = () => {
+        let data = this.state.entireData;
+        return data.map(trafficObject => {
+            let date = []
+            let count = []
+            for (const dataPoint of trafficObject.trafficData){
+                date.push(dataPoint.date)
+                count.push(dataPoint.count)
+            }
+            return {name: trafficObject.trafficData[0].intersectionName,
+                x: date,
+                y: count,
+                marker: {color: trafficObject.color},
+                type: 'scattergl',
+                mode: 'lines+markers'}
+        })
+    }
+
+    deletePoint = (data, index) => {
+        return false;
+    }
+
     state = {
         startDate: twoYearAgo,
         endDate: new Date(),
-        zoomDomain: {x: [twoYearAgo, new Date()], y: [0, 1]},
-        upperGraphData: [],
-        lowerGraphData: [],
         entireData: [],
-        width: window.innerWidth,
-        height: window.innerHeight,
-        entireDomain: {x: [twoYearAgo, new Date()], y: [0, 1]},
+        modifiedData: [],
+        isSetOnFilteringMode: true,
+        filteringMethod: this.filteringMethods[0],
+        filteringFunction: this.getOriginalData,
+        errorDetectionAlgorithm: this.errorDetectionAlgorithms[0],
+        errorDetectionFunction: this.getOriginalData,
+        errorHandlingMethod: this.errorHandlingMetehods[0],
+        errorHandlingFunction: this.deletePoint,
+        isWidthNeeded: false,
+        width: 3,
+        isPercentageNeeded: false,
+        percentage: 0.5,
+        isRangeNeeded: false,
+        minValue: 0,
+        maxValue: 100000,
     }
 
-    timer;
-
-    async componentDidUpdate(prevProps) {
+    async componentDidUpdate(prevProps, prevState) {
         if(this.props.selectedIntersections !== prevProps.selectedIntersections){
             await this.handleChangedIntersectionData(prevProps);
         }
@@ -33,8 +70,6 @@ export default class TrafficVisualisationCharts extends React.Component {
     async handleChangedIntersectionData(prevProps) {
         let startDateString = formatDateToRestTime(this.state.startDate);
         let endDateString = formatDateToRestTime(this.state.endDate);
-        let newUpperGraphData = [];
-        let newLowerGraphData = [];
         let newEntireData = [];
         let oldSelectedIntersections = prevProps.selectedIntersections;
         for (const intersection of this.props.selectedIntersections) {
@@ -44,24 +79,16 @@ export default class TrafficVisualisationCharts extends React.Component {
                 oldSelectedIntersections.splice(possibleIndexInOldSelectedIntersection, 1);
             } else {
                 let response = await requestTrafficData(intersection.dataProvider, intersection.intersectionName, startDateString, endDateString)
-                let trafficData = {trafficData: response.data.trafficDataDTOS, color: generateRandomColor()};
-                let newFilteredData = this.getData(this.state.zoomDomain, trafficData, true);
-                newEntireData.push(trafficData);
-                newUpperGraphData.push(newFilteredData.upperGraphData);
-                newLowerGraphData.push(newFilteredData.lowerGraphData);
+                newEntireData.push({trafficData: response.data.trafficDataDTOS, color: generateRandomColor()});
             }
         }
 
         let oldEntireData = this.state.entireData;
-        let oldUpperGraphData = this.state.upperGraphData;
-        let oldLowerGraphData = this.state.lowerGraphData;
         for (let i = 0; i < oldEntireData.length; i++) {
             let possibleIndex = oldSelectedIntersections.findIndex(oldSelectedIntersection => oldSelectedIntersection.intersectionName === oldEntireData[i].trafficData[0].intersectionName);
             if (possibleIndex >= 0) {
                 oldSelectedIntersections.splice(possibleIndex, 1);
                 oldEntireData.splice(i, 1);
-                oldUpperGraphData.splice(i, 1);
-                oldLowerGraphData.splice(i, 1);
                 i--;
                 if (oldSelectedIntersections.length === 0) {
                     break;
@@ -69,105 +96,354 @@ export default class TrafficVisualisationCharts extends React.Component {
             }
         }
         newEntireData = newEntireData.concat(oldEntireData);
-        newUpperGraphData = newUpperGraphData.concat(oldUpperGraphData);
-        newLowerGraphData = newLowerGraphData.concat(oldLowerGraphData);
-        let fullDomain = this.getEntireDomain(newEntireData);
-        this.setState({entireData: newEntireData,
-            upperGraphData: newUpperGraphData,
-            lowerGraphData: newLowerGraphData,
-            zoomDomain: fullDomain,
-            entireDomain: fullDomain});
+        this.setState({entireData: newEntireData});
     }
 
-    handleZoom = (domain) => {
-        if(this.timer) {
-            window.clearTimeout(this.timer);
+    getMovingMeanData = () => {
+        let data = this.state.entireData;
+        return data.map(trafficObject => {
+            let trafficData = trafficObject.trafficData;
+            let date = []
+            let count = []
+            let width = this.state.width > 1 ? this.state.width: 2;
+            let prevNodes = Math.ceil((width-1)/2);
+            let followingNodes = Math.floor((width-1)/2);
+            for (let i = prevNodes; i < trafficData.length-followingNodes; i++){
+                let movedCount = 0;
+                for(let j = -prevNodes; j <= followingNodes; j++){
+                    movedCount += trafficData[i+j].count;
+                }
+                movedCount = movedCount / width;
+                date.push(trafficData[i].date)
+                count.push(movedCount)
+            }
+            return {name: trafficData[0].intersectionName,
+                x: date,
+                y: count,
+                marker: {color: trafficObject.color},
+                type: 'scattergl',
+                mode: 'lines+markers'}
+        })
+
+    }
+
+    getExponentialFilterData = () => {
+        let data = this.state.entireData;
+        return data.map(trafficObject => {
+            let percentage = this.state.percentage;
+            let trafficData = trafficObject.trafficData;
+            let date = []
+            let count = []
+            let lastCount = trafficData[0].count;
+            for (let i = 1; i < trafficData.length-1; i++){
+                lastCount = (percentage * trafficData[i].count) + ((1-percentage) * lastCount);
+                date.push(trafficData[i].date)
+                count.push(lastCount)
+            }
+            return {name: trafficData[0].intersectionName,
+                x: date,
+                y: count,
+                marker: {color: trafficObject.color},
+                type: 'scattergl',
+                mode: 'lines+markers'}
+        })
+    }
+
+    getSigmaRuleData = () => {
+        let data = this.state.entireData;
+        return data.map(trafficObject => {
+            let trafficData = trafficObject.trafficData;
+
+            let mean = this.getMean(trafficData, 0);
+
+            let standardDeviation = trafficData[0].count;
+            console.log(standardDeviation);
+            for (let i = 1; i < trafficData.length-1; i++){
+                standardDeviation += Math.pow((trafficData[i].count - mean), 2);
+
+            }
+            console.log(standardDeviation);
+            standardDeviation = Math.sqrt((Math.round(standardDeviation)/ (trafficData.length-1)));
+
+            let date = [];
+            let count = [];
+            for (let i = 1; i < trafficData.length-1; i++){
+                let threshold = (trafficData[i].count - mean) / standardDeviation;
+                if(threshold > 2){
+                    let replacementValue = this.state.errorHandlingFunction(trafficData, i);
+                    if(replacementValue !== false){
+                        date.push(trafficData[i].date);
+                        count.push(replacementValue);
+                    }
+                } else {
+                    date.push(trafficData[i].date);
+                    count.push(trafficData[i].count);
+                }
+            }
+            return {name: trafficData[0].intersectionName,
+                x: date,
+                y: count,
+                marker: {color: trafficObject.color},
+                type: 'scattergl',
+                mode: 'lines+markers'}
+        })
+    }
+
+    getThresholdData = () => {
+        let data = this.state.entireData;
+        return data.map(trafficObject => {
+            const minRange = this.state.minValue;
+            const maxRange = this.state.maxValue;
+            let trafficData = trafficObject.trafficData;
+            let date = []
+            let count = []
+            for (let i = 1; i < trafficData.length-1; i++){
+                if(trafficData[i].count > maxRange || trafficData[i].count < minRange){
+                    let replacementValue = this.state.errorHandlingFunction(trafficData, i);
+                    if(replacementValue !== false){
+                        date.push(trafficData[i].date);
+                        count.push(replacementValue);
+                    }
+                } else {
+                    date.push(trafficData[i].date);
+                    count.push(trafficData[i].count);
+                }
+
+            }
+            return {name: trafficData[0].intersectionName,
+                x: date,
+                y: count,
+                marker: {color: trafficObject.color},
+                type: 'scattergl',
+                mode: 'lines+markers'}
+        })
+    }
+
+    handleNewMethodSelected = (event) => {
+        let newMethod = event.target.value;
+        let rawObject = {
+            filteringMethod: this.state.filteringMethod,
+            filteringFunction: this.state.filteringFunction,
+            errorDetectionAlgorithm: this.state.errorDetectionAlgorithm,
+            errorDetectionFunction: this.state.errorDetectionFunction,
+            isWidthNeeded: false,
+            isPercentageNeeded: false,
+            isRangeNeeded: false
         }
-
-        this.timer = window.setTimeout(() => {
-            let newGraphData = this.state.entireData.map(intersectionData => this.getData(domain, intersectionData));
-            this.setState({zoomDomain: domain, upperGraphData: newGraphData.map(intersectionData => intersectionData.upperGraphData)});
-        }, 500);
-    }
-
-    getEntireDomain = (data) => {
-        return {
-            y: [_.min(data.map(intersection => _.minBy(intersection.trafficData, 'count').count)),
-                _.max(data.map(intersection => _.maxBy(intersection.trafficData, 'count').count))],
-            x: [this.state.startDate , this.state.endDate]
-        };
-    }
-
-    getData = (domain, data, shouldUpdateLowerGraph = false) => {
-        let filteredGraphData = {upperGraphData: [], lowerGraphData: []}
-        let upperGraphData = data.trafficData.filter((d) => (dateIsBetweenDates(d.date, domain.x[0], domain.x[1]) && d.count > 0));
-        if (upperGraphData.length > 50) {
-            const k = Math.ceil(upperGraphData.length / 50);
-            upperGraphData = upperGraphData.filter(
-                (d, i) => ((i % k) === 0)
-            );
+        switch (newMethod) {
+            case "Moving Mean":
+                rawObject.filteringMethod = "Moving Mean";
+                rawObject.filteringFunction = this.getMovingMeanData;
+                rawObject.isWidthNeeded = true;
+                break;
+            case "Exponential Filter":
+                rawObject.filteringMethod = "Exponential Filter";
+                rawObject.filteringFunction = this.getExponentialFilterData;
+                rawObject.isPercentageNeeded = true;
+                break;
+            case "Sigma rule":
+                rawObject.errorDetectionAlgorithm = "Sigma rule";
+                rawObject.errorDetectionFunction = this.getSigmaRuleData;
+                break;
+            case "Grenzwerte setzen":
+                rawObject.errorDetectionAlgorithm = "Grenzwerte setzen";
+                rawObject.errorDetectionFunction = this.getThresholdData;
+                rawObject.isRangeNeeded = true;
+                break;
+            default: if(this.state.isSetOnFilteringMode){
+                rawObject.filteringMethod = "Original";
+                rawObject.filteringFunction = this.getOriginalData;
+            }else{
+                rawObject.errorDetectionAlgorithm = "Original";
+                rawObject.errorDetectionFunction = this.getOriginalData;
+            }
+                break;
         }
-        filteredGraphData.upperGraphData = {trafficData: upperGraphData, color: data.color};
-        let lowerGraphData = data.trafficData;
-        if (shouldUpdateLowerGraph && lowerGraphData.length > 80) {
-            const k = Math.ceil(lowerGraphData.length / 80);
-            lowerGraphData = lowerGraphData.filter(
-                (d, i) => ((i % k) === 0)
-            );
+        this.setState(rawObject);
+    }
+
+    getMinimum = (data, index) => {
+        let minValue = data[0].count;
+        for (let i = 1; i < data.length-1; i++){
+            if(minValue > data[i].count){
+                minValue = data[i].count;
+            }
         }
-        filteredGraphData.lowerGraphData = {trafficData: lowerGraphData, color: data.color};
-        return filteredGraphData;
+        return minValue;
     }
 
-    getGraph(intersectionData) {
-        return intersectionData.trafficData.length > 0 ? getChartByTypeAndData(this.props.graphType, intersectionData) : undefined;
+    getMaximum = (data, index) => {
+        let maxValue = data[0].count;
+        for (let i = 1; i < data.length-1; i++){
+            if(maxValue < data[i].count){
+                maxValue = data[i].count;
+            }
+        }
+        return maxValue;
     }
 
-    //TODO: Datum veränderbar
-    //TODO: Legend & Labels
+    getMean = (trafficData, index) => {
+        let mean = 0;
+        for (let i = 1; i < trafficData.length - 1; i++) {
+            mean += trafficData[i].count;
+        }
+        return mean / trafficData.length;
+    }
+
+    getMedian = (trafficData, index) => {
+        if(trafficData.length % 2 === 0){
+            let first = trafficData[Math.floor((trafficData.length / 2))-1];
+            let second = trafficData[Math.ceil((trafficData.length / 2))-1];
+            return (first + second) / 2;
+        } else {
+            return trafficData[(trafficData.length / 2)-1];
+        }
+    }
+
+    linearInterpolation = (trafficData, index) => {
+        return (trafficData[index-1]+trafficData[index-1])/ 2
+    }
+
+    handleNewErrorMethodSelected = (event) => {
+        let newMethod = event.target.value;
+        let rawObject = {
+            errorHandlingMethod: "Punkt entfernen",
+            errorHandlingFunction: this.deletePoint
+        }
+        switch (newMethod) {
+            case "Ersetzen durch Minimum":
+                rawObject.errorHandlingMethod = "Ersetzen durch Minimum";
+                rawObject.errorHandlingFunction = this.getMinimum;
+                break;
+            case "Ersetzen durch Maximum":
+                rawObject.errorHandlingMethod = "Ersetzen durch Maximum";
+                rawObject.errorHandlingFunction = this.getMaximum;
+                break;
+            case "Ersetzen durch Durchschnitt":
+                rawObject.errorHandlingMethod = "Ersetzen durch Durchschnitt";
+                rawObject.errorHandlingFunction = this.getMean;
+                break;
+            case "Ersetzen durch Median":
+                rawObject.errorHandlingMethod = "Ersetzen durch Median";
+                rawObject.errorHandlingFunction = this.getMedian;
+                break;
+            case "Ersetzen durch Linear Interpolation":
+                rawObject.errorHandlingMethod = "Ersetzen durch Linear Interpolation";
+                rawObject.errorHandlingFunction = this.linearInterpolation;
+                break;
+            default: //Punkte löschen
+                break;
+        }
+        this.setState(rawObject);
+    }
+
+    getData = () => {
+        if(this.state.entireData.length > 0) {
+            return this.state.isSetOnFilteringMode
+                ? this.state.filteringFunction()
+                : this.state.errorDetectionFunction();
+        } else {
+            return []
+        }
+    }
+
+    handleChangeMode = () => {
+        this.setState(prevState =>  {return{
+            filteringMethod: "Original",
+            filteringFunction: this.getOriginalData,
+            errorDetectionAlgorithm: "Original",
+            errorDetectionFunction: this.getOriginalData,
+            isSetOnFilteringMode: !prevState.isSetOnFilteringMode,
+            isWidthNeeded: false,
+            isPercentageNeeded: false,
+            isRangeNeeded: false
+        }})
+    }
 
     render() {
-        let upperGraph = this.state.upperGraphData.map(intersectionData => this.getGraph(intersectionData));
-        let lowerGraph = this.state.lowerGraphData.map(intersectionData => this.getGraph(intersectionData));
+        let data = this.getData();
         return (
             <div className="traffic-vis-chart-container">
                 <div className="top-chart">
-                    <VictoryChart
-                        padding={{ top: 10, bottom: 30, left: 26, right: 20 }}
-                        scale={{x: "time"}}
-                        domain={this.state.entireDomain}
-                        containerComponent={
-                            <VictoryZoomContainer zoomDimension="x"
-                                                  zoomDomain={this.state.zoomDomain}
-                                                  onZoomDomainChange={this.handleZoom}
-                                                  preserveAspectRatio="none"
-                            />
-                        }
-                    >
-                        <VictoryAxis/>
-                        <VictoryAxis dependentAxis standalone={false}
-                                     width={10}
-                                     tickLabelComponent={<VictoryLabel padding={{ top: 0, bottom: 0, left: 26, right: -10 }}
-                                                                       transform="matrix(0.50,0.00,0.00,1.00,15,0)"/>}/>
-                        {upperGraph}
-                    </VictoryChart>
+                    <Plot
+                        data={data}
+                        layout={{autosize: true}}
+                        useResizeHandler={true}
+                        style={{width: "100%", height: "100%"}}
+                    />
                 </div>
                 <div className="bottom-chart">
-                    <VictoryChart
-                        padding={{ top: 10, bottom: 30, left: 26, right: 20 }}
-                        scale={{x: "time"}}
-                        domain={this.state.entireDomain}
-                        containerComponent={
-                            <VictoryBrushContainer brushDimension="x"
-                                                   brushDomain={this.state.zoomDomain}
-                                                   onBrushDomainChange={this.handleZoom}
-                                                   preserveAspectRatio="none"
-                            />
+                    <div>
+                        Filtern
+                        <input type="radio" name="site_name"
+                               value="filtering"
+                               checked={this.state.isSetOnFilteringMode}
+                               onChange={this.handleChangeMode} />
+                        Fehler suche
+                        <input type="radio" name="site_name"
+                           value="error"
+                           checked={!this.state.isSetOnFilteringMode}
+                           onChange={this.handleChangeMode} />
+                    </div>
+                    <div>
+                        <Dropdown
+                            activeDropdownOption={this.state.isSetOnFilteringMode? this.state.filteringMethod: this.state.errorDetectionAlgorithm}
+                            handleDropdownChange={this.handleNewMethodSelected}
+                            dropdownOptions={this.state.isSetOnFilteringMode? this.filteringMethods: this.errorDetectionAlgorithms}
+                            extractMethod={(option)=> {return option.displayName}}
+                        />
+                    </div>
+                    <div>
+                        {!this.state.isSetOnFilteringMode &&
+                            <Dropdown
+                                activeDropdownOption={this.state.errorHandlingMethod}
+                                handleDropdownChange={this.handleNewErrorMethodSelected}
+                                dropdownOptions={this.errorHandlingMetehods}
+                        />}
+                    </div>
+                    <div>
+                        {this.state.isWidthNeeded &&
+                            <div>
+                                Breite
+                                <input type="number"
+                                       value={this.state.width}
+                                       onChange={(event) => {this.setState({width: event.target.value})}}/>
+                            </div>
                         }
-                    >
-                        <VictoryAxis/>
-                        {lowerGraph}
-                    </VictoryChart>
+                    </div>
+                    <div>
+                        {this.state.isPercentageNeeded &&
+                        <div>
+                            Prozent
+                            <input type="number"
+                                   max={1}
+                                   min={0}
+                                   step={0.05}
+                                   value={this.state.percentage}
+                                   onChange={(event) => {this.setState({percentage: event.target.value})}}/>
+                        </div>
+                        }
+                    </div>
+                    <div>
+                        {this.state.isRangeNeeded &&
+                        <div>
+                            <div>
+                                Mininimal Wert
+                                <input type="number"
+                                       value={this.state.minValue}
+                                       max={this.state.maxValue-1}
+                                       onChange={(event) => {this.setState({minValue: event.target.value})}}/>
+                            </div>
+                            <div>
+                                Maximal Wert
+                                <input type="number"
+                                       value={this.state.maxValue}
+                                       min={this.state.minValue+1}
+                                       onChange={(event) => {this.setState({maxValue: event.target.value})}}/>
+                            </div>
+                        </div>
+                        }
+                    </div>
                 </div>
             </div>
         );
