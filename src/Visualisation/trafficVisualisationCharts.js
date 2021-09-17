@@ -5,6 +5,15 @@ import {formatDateToRestTime} from "../Utils/timeUtil";
 import "./trafficVisualisationCharts.scss"
 import {generateRandomColor} from "../Utils/transformUtil";
 import Dropdown from "../Common/dropdown";
+import {
+    getExponentialFilterData,
+    getMaximum,
+    getMean,
+    getMedian,
+    getMinimum,
+    getMovingMeanData, getSigmaRuleData,
+    linearInterpolation
+} from "time-series-pre-processing-library";
 
 const twoYearAgo = new Date(new Date().setFullYear(new Date().getFullYear() -2));
 
@@ -35,11 +44,7 @@ export default class TrafficVisualisationCharts extends React.Component {
                 mode: 'lines+markers'}
         })
     }
-
-    deletePoint = (data, index) => {
-        return false;
-    }
-
+    
     state = {
         startDate: twoYearAgo,
         endDate: new Date(),
@@ -51,7 +56,7 @@ export default class TrafficVisualisationCharts extends React.Component {
         errorDetectionAlgorithm: this.errorDetectionAlgorithms[0],
         errorDetectionFunction: this.getOriginalData,
         errorHandlingMethod: this.errorHandlingMetehods[0],
-        errorHandlingFunction: this.deletePoint,
+        errorHandlingFunction: undefined,
         isWidthNeeded: false,
         width: 3,
         isPercentageNeeded: false,
@@ -99,24 +104,27 @@ export default class TrafficVisualisationCharts extends React.Component {
         this.setState({entireData: newEntireData});
     }
 
+    getY = (data, index) => {
+        return data[index].count
+    }
+
+    setY = (yArray, xArray, originalData, newValue, index) => {
+        xArray.push(originalData[index].date)
+        yArray.push(newValue)
+    }
+
     getMovingMeanData = () => {
         let data = this.state.entireData;
         return data.map(trafficObject => {
             let trafficData = trafficObject.trafficData;
             let date = []
             let count = []
-            let width = this.state.width > 1 ? this.state.width: 2;
-            let prevNodes = Math.ceil((width-1)/2);
-            let followingNodes = Math.floor((width-1)/2);
-            for (let i = prevNodes; i < trafficData.length-followingNodes; i++){
-                let movedCount = 0;
-                for(let j = -prevNodes; j <= followingNodes; j++){
-                    movedCount += trafficData[i+j].count;
-                }
-                movedCount = movedCount / width;
-                date.push(trafficData[i].date)
-                count.push(movedCount)
-            }
+            getMovingMeanData(
+                trafficData.length,
+                (index) => this.getY(trafficData, index),
+                (newValue, i) => this.setY(count, date, trafficData, newValue, i),
+                this.state.width
+            )
             return {name: trafficData[0].intersectionName,
                 x: date,
                 y: count,
@@ -134,12 +142,12 @@ export default class TrafficVisualisationCharts extends React.Component {
             let trafficData = trafficObject.trafficData;
             let date = []
             let count = []
-            let lastCount = trafficData[0].count;
-            for (let i = 1; i < trafficData.length-1; i++){
-                lastCount = (percentage * trafficData[i].count) + ((1-percentage) * lastCount);
-                date.push(trafficData[i].date)
-                count.push(lastCount)
-            }
+            getExponentialFilterData(
+                trafficData.length,
+                (index) => this.getY(trafficData, index),
+                (newValue, i) => this.setY(count, date, trafficData, newValue, i),
+                percentage
+            )
             return {name: trafficData[0].intersectionName,
                 x: date,
                 y: count,
@@ -153,33 +161,13 @@ export default class TrafficVisualisationCharts extends React.Component {
         let data = this.state.entireData;
         return data.map(trafficObject => {
             let trafficData = trafficObject.trafficData;
-
-            let mean = this.getMean(trafficData, 0);
-
-            let standardDeviation = trafficData[0].count;
-            console.log(standardDeviation);
-            for (let i = 1; i < trafficData.length-1; i++){
-                standardDeviation += Math.pow((trafficData[i].count - mean), 2);
-
-            }
-            console.log(standardDeviation);
-            standardDeviation = Math.sqrt((Math.round(standardDeviation)/ (trafficData.length-1)));
-
             let date = [];
             let count = [];
-            for (let i = 1; i < trafficData.length-1; i++){
-                let threshold = (trafficData[i].count - mean) / standardDeviation;
-                if(threshold > 2){
-                    let replacementValue = this.state.errorHandlingFunction(trafficData, i);
-                    if(replacementValue !== false){
-                        date.push(trafficData[i].date);
-                        count.push(replacementValue);
-                    }
-                } else {
-                    date.push(trafficData[i].date);
-                    count.push(trafficData[i].count);
-                }
-            }
+            getSigmaRuleData(
+                trafficData.length,
+                (index) => this.getY(trafficData, index),
+                (newValue, i) => this.setY(count, date, trafficData, newValue, i),
+                this.state.errorHandlingFunction)
             return {name: trafficData[0].intersectionName,
                 x: date,
                 y: count,
@@ -262,74 +250,32 @@ export default class TrafficVisualisationCharts extends React.Component {
         this.setState(rawObject);
     }
 
-    getMinimum = (data, index) => {
-        let minValue = data[0].count;
-        for (let i = 1; i < data.length-1; i++){
-            if(minValue > data[i].count){
-                minValue = data[i].count;
-            }
-        }
-        return minValue;
-    }
-
-    getMaximum = (data, index) => {
-        let maxValue = data[0].count;
-        for (let i = 1; i < data.length-1; i++){
-            if(maxValue < data[i].count){
-                maxValue = data[i].count;
-            }
-        }
-        return maxValue;
-    }
-
-    getMean = (trafficData, index) => {
-        let mean = 0;
-        for (let i = 1; i < trafficData.length - 1; i++) {
-            mean += trafficData[i].count;
-        }
-        return mean / trafficData.length;
-    }
-
-    getMedian = (trafficData, index) => {
-        if(trafficData.length % 2 === 0){
-            let first = trafficData[Math.floor((trafficData.length / 2))-1];
-            let second = trafficData[Math.ceil((trafficData.length / 2))-1];
-            return (first + second) / 2;
-        } else {
-            return trafficData[(trafficData.length / 2)-1];
-        }
-    }
-
-    linearInterpolation = (trafficData, index) => {
-        return (trafficData[index-1]+trafficData[index-1])/ 2
-    }
-
     handleNewErrorMethodSelected = (event) => {
         let newMethod = event.target.value;
         let rawObject = {
             errorHandlingMethod: "Punkt entfernen",
-            errorHandlingFunction: this.deletePoint
+            errorHandlingFunction: undefined
         }
         switch (newMethod) {
             case "Ersetzen durch Minimum":
                 rawObject.errorHandlingMethod = "Ersetzen durch Minimum";
-                rawObject.errorHandlingFunction = this.getMinimum;
+                rawObject.errorHandlingFunction = getMinimum;
                 break;
             case "Ersetzen durch Maximum":
                 rawObject.errorHandlingMethod = "Ersetzen durch Maximum";
-                rawObject.errorHandlingFunction = this.getMaximum;
+                rawObject.errorHandlingFunction = getMaximum;
                 break;
             case "Ersetzen durch Durchschnitt":
                 rawObject.errorHandlingMethod = "Ersetzen durch Durchschnitt";
-                rawObject.errorHandlingFunction = this.getMean;
+                rawObject.errorHandlingFunction = getMean;
                 break;
             case "Ersetzen durch Median":
                 rawObject.errorHandlingMethod = "Ersetzen durch Median";
-                rawObject.errorHandlingFunction = this.getMedian;
+                rawObject.errorHandlingFunction = getMedian;
                 break;
             case "Ersetzen durch Linear Interpolation":
                 rawObject.errorHandlingMethod = "Ersetzen durch Linear Interpolation";
-                rawObject.errorHandlingFunction = this.linearInterpolation;
+                rawObject.errorHandlingFunction = linearInterpolation;
                 break;
             default: //Punkte löschen
                 break;
