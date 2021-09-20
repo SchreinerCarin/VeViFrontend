@@ -11,7 +11,7 @@ import {
     getMean,
     getMedian,
     getMinimum,
-    getMovingMeanData, getSigmaRuleData,
+    getMovingMeanData, getSigmaRuleData, getThresholdData,
     linearInterpolation
 } from "time-series-pre-processing-library";
 
@@ -44,7 +44,7 @@ export default class TrafficVisualisationCharts extends React.Component {
                 mode: 'lines+markers'}
         })
     }
-    
+
     state = {
         startDate: twoYearAgo,
         endDate: new Date(),
@@ -119,7 +119,7 @@ export default class TrafficVisualisationCharts extends React.Component {
             let trafficData = trafficObject.trafficData;
             let date = []
             let count = []
-            getMovingMeanData(
+             getMovingMeanData(
                 trafficData.length,
                 (index) => this.getY(trafficData, index),
                 (newValue, i) => this.setY(count, date, trafficData, newValue, i),
@@ -185,19 +185,13 @@ export default class TrafficVisualisationCharts extends React.Component {
             let trafficData = trafficObject.trafficData;
             let date = []
             let count = []
-            for (let i = 1; i < trafficData.length-1; i++){
-                if(trafficData[i].count > maxRange || trafficData[i].count < minRange){
-                    let replacementValue = this.state.errorHandlingFunction(trafficData, i);
-                    if(replacementValue !== false){
-                        date.push(trafficData[i].date);
-                        count.push(replacementValue);
-                    }
-                } else {
-                    date.push(trafficData[i].date);
-                    count.push(trafficData[i].count);
-                }
-
-            }
+            getThresholdData(
+                trafficData.length,
+                (index) => this.getY(trafficData, index),
+                (newValue, i) => this.setY(count, date, trafficData, newValue, i),
+                minRange,
+                maxRange,
+                this.state.errorHandlingFunction)
             return {name: trafficData[0].intersectionName,
                 x: date,
                 y: count,
